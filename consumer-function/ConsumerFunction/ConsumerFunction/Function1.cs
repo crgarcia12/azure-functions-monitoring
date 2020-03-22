@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.ApplicationInsights.Extensibility;
@@ -23,13 +24,24 @@ namespace ConsumerFunction
         [FunctionName("Function1")]
         public void Run([ServiceBusTrigger("itemsqueue", Connection = "ServiceBusConnectionString")]string myQueueItem, ILogger log)
         {
-            log.LogInformation($"C# ServiceBus queue trigger function processed message: {myQueueItem}");
+            var activity = Activity.Current;
 
-            var operation = telemetryClient.StartOperation<DependencyTelemetry>($"Received message for processing {myQueueItem}");
-            var telemetryProperties = new Dictionary<string, string> { { "QueueMessage", myQueueItem } };
-            telemetryClient.TrackEvent("ReceivedForProcessingEvent", telemetryProperties);
-            telemetryClient.TrackTrace("ReceivedForProcessingTrace", telemetryProperties);
-            telemetryClient.StopOperation(operation);
+            using (var operation = telemetryClient.StartOperation<RequestTelemetry>(activity))
+            {
+                telemetryClient.TrackTrace("Received message");
+                try 
+                {
+                // process message
+                }
+                catch (Exception ex)
+                {
+                    telemetryClient.TrackException(ex);
+                    operation.Telemetry.Success = false;
+                    throw;
+                }
+
+                telemetryClient.TrackTrace("Done");
+        }
             telemetryClient.Flush();
         }
     }

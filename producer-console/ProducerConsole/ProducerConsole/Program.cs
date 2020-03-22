@@ -48,41 +48,36 @@ namespace ProducerConsole
 
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
 
-
             for (var i = 20; i < 30; i++)
             {
-                var operation = telemetryClient.StartOperation<DependencyTelemetry>($"Generating Item {i}");
-                var telemetryProperties = new Dictionary<string, string> { { "Message", "" }, { "Id", i.ToString() } };
-                try
+                using(var operation = telemetryClient.StartOperation<RequestTelemetry>($"Generating Item"))
                 {
-                    // Create a new message to send to the queue.
-                    dynamic message = new JObject();
-                    message.Item = i;
+                    var telemetryProperties = new Dictionary<string, string> { { "Message", "" }, { "Id", i.ToString() } };
+                    try
+                    {
+                        // Create a new message to send to the queue.
+                        dynamic message = new JObject();
+                        message.Item = i;
 
-                    var encodedMessage = new Message(Encoding.UTF8.GetBytes(message.ToString()));
-                    telemetryProperties["Message"] = message.ToString();
+                        var encodedMessage = new Message(Encoding.UTF8.GetBytes(message.ToString()));
+                        telemetryProperties["Message"] = message.ToString();
 
 
-                    telemetryClient.TrackEvent("Sending message", telemetryProperties);
+                        telemetryClient.TrackEvent("Sending message", telemetryProperties);
 
-                    // Send the message to the queue.
-                    DateTime startTime = DateTime.UtcNow;
-                    await queueClient.SendAsync(encodedMessage);
-                    telemetryClient.TrackDependency("QueueOperation", $"Sending Message {i} to queue", message.ToString(), startTime, DateTime.UtcNow - startTime, true);
+                        // Send the message to the queue.
+                        DateTime startTime = DateTime.UtcNow;
+                        await queueClient.SendAsync(encodedMessage);
 
-                    telemetryClient.TrackEvent("Message sent", telemetryProperties);
-                    operation.Telemetry.Success = true;
+                        telemetryClient.TrackEvent("Message sent", telemetryProperties);
+                        operation.Telemetry.Success = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        operation.Telemetry.Success = false;
+                        telemetryClient.TrackException(ex, telemetryProperties);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    operation.Telemetry.Success = false;
-                    telemetryClient.TrackException(ex, telemetryProperties);
-                }
-                finally
-                {
-                    telemetryClient.StopOperation<DependencyTelemetry>(operation);
-                }
-
             }
 
             telemetryClient.TrackTrace("Finish producer");
@@ -93,22 +88,3 @@ namespace ProducerConsole
         }
     }
 }
-
-
-
-
-
-
-/*
- * private readonly TelemetryClient telemetryClient;
-
-        public Function1(TelemetryConfiguration configuration)
-        {
-            this.telemetryClient = new TelemetryClient(configuration);
-        }
-
-
-        [FunctionName("Function1")]
-        public static void Run([ServiceBusTrigger("itemsqueue", Connection = "Endpoint=sb://crgar-function-monitoring-bus.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=K4Ee0JIMTr3fB5dHmXht6KFbDQyyHfgdkEKX29DoaLU=")]string myQueueItem, ILogger log)
-        {
- */
