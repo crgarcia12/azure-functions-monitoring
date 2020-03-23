@@ -48,7 +48,7 @@ namespace ProducerConsole
 
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
 
-            for (var i = 20; i < 30; i++)
+            for (var i = 60; i < 70; i++)
             {
                 using(var operation = telemetryClient.StartOperation<RequestTelemetry>($"Generating Item"))
                 {
