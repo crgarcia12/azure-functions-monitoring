@@ -2,6 +2,7 @@
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.ApplicationInsights.DependencyCollector;
 using Microsoft.ApplicationInsights.Extensibility;
+using Microsoft.Azure.Amqp.Framing;
 using Microsoft.Azure.ServiceBus;
 using Microsoft.Azure.ServiceBus.Management;
 using Newtonsoft.Json.Linq;
@@ -16,7 +17,6 @@ namespace ProducerConsole
     class Program
     {
         const string ServiceBusConnectionString = "Endpoint=sb://crgar-function-monitoring-bus.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=K4Ee0JIMTr3fB5dHmXht6KFbDQyyHfgdkEKX29DoaLU=";
-        const string QueueName = "itemsqueue";
 
         // Make sure a bunch of queues are available in the SB namespace
         static async Task CreateQueues(string connectionString, string[] queueNames)
@@ -42,62 +42,89 @@ namespace ProducerConsole
 
             for (var i = 1100; i < 1101; i++)
             {
-                using (var operation = telemetryManager.StartOperation<RequestTelemetry>($"Generating Item"))
+                var telemetryProperties = new Dictionary<string, string> { { "Message", "" }, { "Id", i.ToString() } };
+                try
                 {
-                    var telemetryProperties = new Dictionary<string, string> { { "Message", "" }, { "Id", i.ToString() } };
-                    try
-                    {
-                        // Create a new message to send to the queue.
-                        dynamic message = new JObject();
-                        message.Item = i;
+                    // Create a new message to send to the queue.
+                    dynamic message = new JObject();
+                    message.Item = i;
 
-                        var encodedMessage = new Message(Encoding.UTF8.GetBytes(message.ToString()));
-                        telemetryProperties["Message"] = message.ToString();
+                    telemetryManager.TrackEvent("Sending message", telemetryProperties);
 
-
-                        telemetryManager.TrackEvent("Sending message", telemetryProperties);
-
-                        // Send the message to the queue.
-                        DateTime startTime = DateTime.UtcNow;
-                        await queueClient.SendAsync(encodedMessage);
-
-                        telemetryManager.TrackEvent("Message sent", telemetryProperties);
-                        operation.Telemetry.Success = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        operation.Telemetry.Success = false;
-                        telemetryManager.TrackException(ex, telemetryProperties);
-                    }
+                    var encodedMessage = new Message(Encoding.UTF8.GetBytes(message.ToString()));
+                    telemetryProperties["Message"] = message.ToString();
+                    // Send the message to the queue.
+                    await queueClient.SendAsync(encodedMessage);
+                    
+                    telemetryManager.TrackEvent("Message sent", telemetryProperties);
+                }
+                catch (Exception ex)
+                {
+                    telemetryManager.TrackException(ex, telemetryProperties);
                 }
             }
         }
 
         static async Task Main(string[] args)
         {
-            Console.WriteLine("Starting application");
+            await WorkOnAllQueues();
 
-            var queueNames = new string[] { "functionwithoutoperationsqueue", "functionactivityoperationqueue", "functiondoubleoperationqueue", "functionnewoperationonlyqueue" };
-            //await DeleteAllQueues(ServiceBusConnectionString, queueNames);
+        }
 
-            var telemetryManager = new TelemetryManager();
-            telemetryManager.TrackTrace("Starting producer");
+        static async Task SimpleFlow()
+        {
+            // Get App Insights client
+            var module = new DependencyTrackingTelemetryModule();
+            TelemetryConfiguration config = TelemetryConfiguration.CreateDefault();
+            config.InstrumentationKey = "9cb1ad14-ac0a-49ea-a2d2-3009a03646ec";
+            module.IncludeDiagnosticSourceActivities.Add("Microsoft.Azure.ServiceBus");
+            module.IncludeDiagnosticSourceActivities.Add("Microsoft.Azure.EventHubs");
+            module.Initialize(config);
+            var telemetryClient = new TelemetryClient(config);
+            telemetryClient.Context.Cloud.RoleName = "ProducerOperation";
+            telemetryClient.Context.Cloud.RoleInstance = "localhost";
 
+            // Create a msg
+            string message = "simple message";
+            var encodedMessage = new Message(Encoding.UTF8.GetBytes(message.ToString()));
+            var telemetryProperties = new Dictionary<string, string> {{ "Message", message } };
+
+            var queueName = "emptyqueue";
+            telemetryClient.TrackEvent("BeforeSending", telemetryProperties);
+
+            // Send msg
+            QueueClient queueClient = new QueueClient(ServiceBusConnectionString, queueName);
+            await queueClient.SendAsync(encodedMessage);
+
+            telemetryClient.TrackEvent("AfterSending", telemetryProperties);
+            telemetryClient.Flush();
+        }
+
+        static async Task WorkOnAllQueues()
+        {
+            var queueNames = new string[] { "functionwithoutoperationsqueue" }; //, "functionactivityoperationqueue", "functiondoubleoperationqueue", "functionnewoperationonlyqueue" };
+            //await DeleteAllQueues(ServiceBusConnectionString, queueNames)
             //await CreateQueues(ServiceBusConnectionString, queueNames);
 
-            foreach (string queueName in queueNames)
+            var telemetryManager = new TelemetryManager();
+            
+            using (var operation = telemetryManager.StartOperation<DependencyTelemetry>("root operation"))
             {
-                telemetryManager.SetRole($"Producer for {queueName}");
-                using (var operation = telemetryManager.StartOperation<RequestTelemetry>($"RootOperationforQueue", true))
+                telemetryManager.TrackTrace("Starting producer");
+                
+
+                foreach (string queueName in queueNames)
                 {
                     await SendMessagesToQueue(queueName, ServiceBusConnectionString, telemetryManager);
+                    telemetryManager.Flush();
                 }
-                telemetryManager.Flush();
+
+                telemetryManager.TrackEvent("Finish producer", null);
+                telemetryManager.TrackTrace("Finish producer");
+                
             }
 
-            telemetryManager.TrackTrace("Finish producer");
             telemetryManager.Flush();
-            
             Console.WriteLine("Done!");
             Console.ReadKey();
         }
