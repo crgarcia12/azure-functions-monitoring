@@ -40,7 +40,7 @@ namespace ProducerConsole
         {
             QueueClient queueClient = new QueueClient(serviceBusConnectionString, queueName);
 
-            for (var i = 1100; i < 1101; i++)
+            for (var i = 1100; i < 1201; i++)
             {
                 var telemetryProperties = new Dictionary<string, string> { { "Message", "" }, { "Id", i.ToString() } };
                 try
@@ -102,7 +102,7 @@ namespace ProducerConsole
 
         static async Task WorkOnAllQueues()
         {
-            var queueNames = new string[] { "functionwithoutoperationsqueue" }; //, "functionactivityoperationqueue", "functiondoubleoperationqueue", "functionnewoperationonlyqueue" };
+            var queueNames = new string[] { "functionwithoutoperationsqueue", "functionactivityoperationqueue", "functiondoubleoperationqueue", "functionnewoperationonlyqueue" };
             //await DeleteAllQueues(ServiceBusConnectionString, queueNames)
             //await CreateQueues(ServiceBusConnectionString, queueNames);
 
